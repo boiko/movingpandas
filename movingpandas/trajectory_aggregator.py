@@ -8,6 +8,7 @@ from shapely.ops import nearest_points
 from movingpandas.point_clusterer import PointClusterer
 from .geometry_utils import azimuth, angular_difference, measure_distance_geodesic, measure_distance_euclidean
 
+from sklearn.neighbors import NearestNeighbors
 
 class TrajectoryCollectionAggregator:
     def __init__(self, traj_collection, max_distance, min_distance, min_stop_duration, min_angle=45):
@@ -200,7 +201,10 @@ class _PtsExtractor:
 class _SequenceGenerator:
     def __init__(self, cells, traj_collection):
         self.cells = cells
-        self.cells_union = cells.geometry.unary_union
+        self.cells["lat"] = cells.geometry.apply(lambda pt: pt.y)
+        self.cells["lon"] = cells.geometry.apply(lambda pt: pt.x)
+        self.nn = NearestNeighbors(n_neighbors=1)
+        self.nn.fit(self.cells[["lon", "lat"]])
 
         self.id_to_centroid = {i: [f, [0, 0, 0, 0, 0]] for i, f in cells.iterrows()}
         self.sequences = {}
@@ -210,8 +214,14 @@ class _SequenceGenerator:
     def evaluate_trajectory(self, trajectory):
         this_sequence = []
         prev_cell_id = None
-        for t, geom in trajectory.df[trajectory.get_geom_column_name()].iteritems():
-            nearest_id = self.get_nearest(geom)
+        lat_lon_df = DataFrame()
+        lat_lon_df["lat"] = trajectory.df.geometry.apply(lambda pt: pt.y)
+        lat_lon_df["lon"] = trajectory.df.geometry.apply(lambda pt: pt.x)
+        nearest = self.nn.kneighbors(lat_lon_df[["lon", "lat"]], return_distance=False)
+        for iterator, n in zip(trajectory.df.iterrows(), nearest):
+            t, row = iterator
+            index = n[0]
+            nearest_id = self.cells.iloc[index].name #self.get_nearest(row[trajectory.get_geom_column_name()])
             nearest_cell = self.id_to_centroid[nearest_id][0]
             nearest_cell_id = nearest_cell.name
             if len(this_sequence) >= 1:
