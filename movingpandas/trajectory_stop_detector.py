@@ -56,14 +56,18 @@ class TrajectoryStopDetector:
     def _process_traj(self, traj, max_diameter, min_duration):
         detected_stops = []
         segment_geoms = []
-        unique_geoms = []
+        unique_geoms = {}
         segment_times = []
         is_stopped = False
         previously_stopped = False
         geom_column_name = traj.get_geom_column_name()
 
+        def hash_point(point):
+            return f"{point.x},{point.y}"
+
         for index, value in traj.df[geom_column_name].iteritems():
-            fast_track = value in unique_geoms
+            key = hash_point(value)
+            fast_track = key in unique_geoms
             segment_geoms.append(value)
             segment_times.append(index)
 
@@ -73,7 +77,7 @@ class TrajectoryStopDetector:
                 previously_stopped = is_stopped
                 continue
 
-            unique_geoms.append(value)
+            unique_geoms[key] = value
 
             if not is_stopped:  # remove points to the specified min_duration
                 while len(segment_geoms) > 2 and segment_times[-1] - segment_times[0] >= min_duration:
@@ -81,12 +85,13 @@ class TrajectoryStopDetector:
                     segment_times.pop(0)
 
                 # reconstruct the unique geometries
-                unique_geoms = []
+                unique_geoms = {}
                 for geom in segment_geoms:
-                    if geom not in unique_geoms:
-                        unique_geoms.append(geom)
+                    key = hash_point(geom)
+                    if key not in unique_geoms:
+                        unique_geoms[key] = geom
 
-            if len(segment_geoms) > 1 and mrr_diagonal(unique_geoms, traj.is_latlon) < max_diameter:
+            if len(segment_geoms) > 1 and mrr_diagonal(list(unique_geoms.values()), traj.is_latlon) < max_diameter:
                 is_stopped = True
             else:
                 is_stopped = False
@@ -98,7 +103,7 @@ class TrajectoryStopDetector:
                     if segment_end - segment_begin >= min_duration:  # detected end of a stop
                         detected_stops.append(TemporalRangeWithTrajId(segment_begin, segment_end, traj.id))
                         segment_geoms = []
-                        unique_geoms = []
+                        unique_geoms = {}
                         segment_times = []
 
             previously_stopped = is_stopped
