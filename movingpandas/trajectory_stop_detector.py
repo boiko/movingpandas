@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from geopandas import GeoDataFrame
+from shapely.geometry import MultiPoint
 from .trajectory import Trajectory
 from .trajectory_collection import TrajectoryCollection
 from .geometry_utils import mrr_diagonal
@@ -56,28 +57,16 @@ class TrajectoryStopDetector:
     def _process_traj(self, traj, max_diameter, min_duration):
         detected_stops = []
         segment_geoms = []
-        unique_geoms = {}
+        unique_geoms = MultiPoint()
         segment_times = []
         is_stopped = False
         previously_stopped = False
         geom_column_name = traj.get_geom_column_name()
 
-        def hash_point(point):
-            return f"{point.x},{point.y}"
-
         for index, value in traj.df[geom_column_name].iteritems():
-            key = hash_point(value)
-            fast_track = key in unique_geoms
             segment_geoms.append(value)
             segment_times.append(index)
-
-            # if the point is already in the set, there is no point in finding the mrr_diagonal, as the result won't
-            # change
-            if is_stopped and fast_track:
-                previously_stopped = is_stopped
-                continue
-
-            unique_geoms[key] = value
+            unique_geoms = unique_geoms.union(value)
 
             if not is_stopped:  # remove points to the specified min_duration
                 while len(segment_geoms) > 2 and segment_times[-1] - segment_times[0] >= min_duration:
@@ -85,13 +74,9 @@ class TrajectoryStopDetector:
                     segment_times.pop(0)
 
                 # reconstruct the unique geometries
-                unique_geoms = {}
-                for geom in segment_geoms:
-                    key = hash_point(geom)
-                    if key not in unique_geoms:
-                        unique_geoms[key] = geom
+                unique_geoms = MultiPoint(segment_geoms)
 
-            if len(segment_geoms) > 1 and mrr_diagonal(list(unique_geoms.values()), traj.is_latlon) < max_diameter:
+            if len(segment_geoms) > 1 and mrr_diagonal(unique_geoms, traj.is_latlon) < max_diameter:
                 is_stopped = True
             else:
                 is_stopped = False
@@ -103,7 +88,7 @@ class TrajectoryStopDetector:
                     if segment_end - segment_begin >= min_duration:  # detected end of a stop
                         detected_stops.append(TemporalRangeWithTrajId(segment_begin, segment_end, traj.id))
                         segment_geoms = []
-                        unique_geoms = {}
+                        unique_geoms = MultiPoint()
                         segment_times = []
 
             previously_stopped = is_stopped
