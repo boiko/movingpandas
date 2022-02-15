@@ -153,7 +153,9 @@ class TrajectoryStopDetector:
         for stop in stops:
             stop_pts.at[stop.id, 'start_time'] = stop.get_start_time()
             stop_pts.at[stop.id, 'end_time'] = stop.get_end_time()
-            stop_pts.at[stop.id, 'geometry'] = stop.get_start_location()
+            # FIXME: custom stop location instead of start location
+            #stop_pts.at[stop.id, 'geometry'] = stop.get_start_location()
+            stop_pts.at[stop.id, 'geometry'] = stop.to_linestring().centroid
             stop_pts.at[stop.id, 'traj_id'] = stop.parent.id
 
         if len(stops) > 0:
